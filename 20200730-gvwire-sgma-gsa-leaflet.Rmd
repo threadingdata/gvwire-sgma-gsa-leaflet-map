@@ -144,6 +144,8 @@ pal <- leaflet::colorFactor(viridis_pal(option = "E")(4),
                             domain = priority_vals,
                             reverse = TRUE)
 
+gvwire_image <- 'https://raw.githubusercontent.com/threadingdata/gvwire-sgma-gsa-leaflet-map/master/www/gvwire.png'
+
 m <- leaflet(data=boundary_priority) %>% 
   setView(lng = '-119.4179', lat = '37.5', zoom = 7) %>% 
   addProviderTiles('Esri.WorldImagery', "Satellite") %>% 
@@ -238,7 +240,7 @@ m <- leaflet(data=boundary_priority) %>%
              decPoint = '.',
              activeColor = '#3D535D',
              completedColor = '#7D4479') %>% 
-  addLogo(img = '', url = 'http://www.gvwire.com',
+  addLogo(img = gvwire_image, url = 'http://www.gvwire.com',
           src = 'remote', width = '110%', height = '110%', offset.y = 0, 
           position = 'topleft') %>% 
   hideGroup("Basins")
