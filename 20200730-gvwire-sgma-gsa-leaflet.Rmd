@@ -1,0 +1,249 @@
+---
+title: ''
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+```
+
+
+```{r include=FALSE}
+library(leaflet)
+library(leafpop)
+library(leafem)
+library(sf)
+library(viridis)
+library(tidyverse)
+# Read in basin priority metafile.  Will be used to join to shapefile geometry.
+basin_priority <- read_csv('./data/basin_priorities.csv')
+
+# Groundwater Basin shapefile. Geometry and selected data of (sub)basins.
+sgma_shape <- './data/basin-boundaries-shapefile/CA_Bulletin_118_Groundwater_Basins.shp'
+sgma_boundaries <- st_read(sgma_shape)
+
+# Clean the boundaries file.  Select only those vars needed.
+boundaries <- sgma_boundaries %>% 
+  set_names(c('object_id', 'basin_number', 'sub_basin_number', 'basin_name', 
+              'sub_basin_name', 'region_office', 'global_id', 'geometry')) %>% 
+  mutate_at(vars(basin_number:global_id), as.character) %>%
+  mutate(sub_basin_name = str_replace_all(sub_basin_name, ' - ', ', '),
+         subbasin_name = sub_basin_name %>% str_to_title) %>% 
+  separate(sub_basin_name, into = c('tmp1', 'subbasin'), sep = ', ', fill = 'left') %>% 
+  select(-tmp1)
+#boundaries %>% slice(1:5) %>% View
+
+# Join groundwater basin and priority metadata files.  Set ordering of 
+# basin priority factor.
+boundary_priority <- boundaries %>% 
+  left_join(basin_priority, by = 'sub_basin_number') %>% 
+  mutate(priority = factor(priority, 
+                           levels = c('High', 'Medium', 'Low', 'Very Low')),
+         acres = prettyNum(round(acres, 0), big.mark = ','),
+         sq_miles = prettyNum(round(sq_miles, 0), big.mark = ','))
+boundary_priority         
+
+# Clean names for popups.
+boundary_priority <- boundary_priority %>% 
+  mutate_at(vars(basin_name, subbasin), str_to_title) %>% 
+  select(sub_basin_number, basin_name, subbasin_name, subbasin, acres, sq_miles, priority)
+
+# Create popup div() html container.
+boundary_priority <- boundary_priority %>% 
+  mutate(popup_html = paste0(
+    '<table>',
+    '<tr>',
+    '<th font-size: 12px;>','Basin: ','</th>',
+    '<td style="text-align:right; font-size: 12px;">', basin_name, '</td>',
+    '</tr>',
+    '<tr>',
+    '<th font-size: 12px;>','Subbasin: ','</th>',
+    '<td style="text-align:right; font-size: 12px;">', subbasin, '</td>',
+    '</tr>',
+    '<tr>',
+    '<th font-size: 12px;>','Acres: ','</th>',
+    '<td style="text-align:right; font-size: 12px;">', acres, '</td>',
+    '</tr>',
+    '<tr>',
+    '<th font-size: 12px;>','Square Miles: ','</th>',
+    '<td style="text-align:right; font-size: 12px;">', sq_miles, '</td>',
+    '</tr>',
+    '<tr>',
+    '<th font-size: 12px;>','Subbasin Number: ','</th>',
+    '<td style="text-align:right; font-size: 12px;">', sub_basin_number, '</td>',
+    '</tr>',
+    '<tr>',
+    '<th font-size: 12px;>','Basin Priority: ','</th>',
+    '<td style="text-align:right; font-size: 12px;">', priority, '</td>',
+    '</tr>',
+    '</table>'))
+#boundary_priority %>% slice(1:5) %>% View
+#st_write(boundary_priority, 'boundary_priority-gvwire.shp')
+
+# Set Metadata
+priority_metadata <- boundary_priority %>%
+  tibble %>% 
+  select(-geometry)
+#write_csv(priority_metadata, 'priority-metadata-gvwire.csv')
+
+# GSA Shapefiles
+gsa_shape <- './data/gsa-boundaries-shapefile/GSA_Master.shp'
+gsa_boundaries <- st_read(gsa_shape) %>% 
+  rename(dwr_gsa_id = DWR.GSA.ID, 
+         gsa_name = GSA.Name,
+         sub_basin_number = Basin.s.,
+         local_id = Local.ID,
+         post_date = Posted.DT,
+         gsa_url = GSA.URL,
+         gsa_contact = POC.Name,
+         gsa_phone = POC.Phone,
+         gsa_email = POC.Email,
+         days_90 = X90.Days,
+         gsa_id = GSA_ID) %>% 
+  mutate(sub_basin_number = str_remove_all(sub_basin_number, 
+                                           ' \\(Exclusive\\)| \\(Overlap\\)'),
+         sub_basin_number = str_split(sub_basin_number, pattern = ',', 
+                                      simplify = TRUE)[,1],
+         gsa_name = str_replace_all(gsa_name, 'GSA', '')) 
+gsa_boundaries_metadata <- gsa_boundaries %>% 
+  left_join(priority_metadata, by = 'sub_basin_number') %>% 
+  select(gsa_name, gsa_id, basin_name, subbasin, sub_basin_number, priority, geometry) %>% 
+  mutate(popup_html = paste0(
+    '<table>',
+    '<tr>',
+    '<th font-size: 12px;>','GSA Name: ','</th>',
+    '<td style="text-align:right; font-size: 12px;">', gsa_name, '</td>',
+    '</tr>',
+    '<tr>',
+    '<th font-size: 12px;>','GSA ID: ','</th>',
+    '<td style="text-align:right; font-size: 12px;">', gsa_id, '</td>',
+    '</tr>',
+    '<tr>',
+    '<th font-size: 12px;>','Basin: ','</th>',
+    '<td style="text-align:right; font-size: 12px;">', basin_name, '</td>',
+    '</tr>',
+    '<tr>',
+    '<th font-size: 12px;>','Subbasin: ','</th>',
+    '<td style="text-align:right; font-size: 12px;">', subbasin, '</td>',
+    '</tr>',
+    '<tr>',
+    '<th font-size: 12px;>','Subbasin Number: ','</th>',
+    '<td style="text-align:right; font-size: 12px;">', sub_basin_number, '</td>',
+    '</tr>',
+
+    '<tr>',
+    '<th font-size: 12px;>','Basin Priority: ','</th>',
+    '<td style="text-align:right; font-size: 12px;">', priority, '</td>',
+    '</tr>',
+    '</table>'))
+gsa_boundaries_metadata
+#st_write(gsa_boundaries_metadata, 'gsa-boundaries_plus_metadata.shp', delete_layer = TRUE)
+
+priority_vals <- boundary_priority$priority %>% unique
+pal <- leaflet::colorFactor(viridis_pal(option = "E")(4), 
+                            domain = priority_vals,
+                            reverse = TRUE)
+
+m <- leaflet(data=boundary_priority) %>% 
+  setView(lng = '-119.4179', lat = '37.5', zoom = 7) %>% 
+  addProviderTiles('Esri.WorldImagery', "Satellite") %>% 
+  addProviderTiles(providers$Stamen.Terrain, group = "Terrain") %>%
+  addProviderTiles(providers$Stamen.TonerLite, group = "Toner") %>%
+  addPolygons(,
+              weight = 1, 
+              smoothFactor = 1,
+              opacity = 1.0, 
+              fillOpacity = 0.70,
+              fillColor = ~pal(priority),
+              color = 'black',
+              highlightOptions = highlightOptions(
+                color = "white", 
+                weight = 2,
+                bringToFront = TRUE),
+              label = ~subbasin_name,
+              labelOptions = labelOptions(noHide = F, 
+                                          direction = "bottom",
+                                          style = list(
+                                            "background-color" = "#34455f",
+                                            "color" = "#eae4db",
+                                            "font-style" = "italic",
+                                            "margin" = "2px 15px",
+                                            "border-shadow" = "inset 5px 4px 3px -2px rgba(254, 254, 254, 0.4)",
+                                            "border-radius" = "border-radius: 22px",
+                                            "font-size" = "11px",
+                                            "border-color" = "rgba(0,0,0,0.5)")
+              ),
+              popup = boundary_priority$popup_html,
+              popupOptions = popupOptions(closeButton = FALSE, 
+                                          closeOnClick = TRUE, 
+                                          autoClose = FALSE,
+                                          style = list(
+                                            "background-color" = "#34455f",
+                                            "color" = "#eae4db")),
+              group = 'Basins') %>%
+  addPolygons(data = gsa_boundaries_metadata,
+              weight = 1, 
+              smoothFactor = 1,
+              opacity = 1.0, 
+              fillOpacity = 0.75,
+              fillColor = ~pal(priority),
+              color = 'black',
+              highlightOptions = highlightOptions(
+                color = "white", 
+                weight = 2,
+                bringToFront = TRUE),
+              label = ~gsa_name,
+              labelOptions = labelOptions(noHide = F, 
+                                          direction = "bottom",
+                                          style = list(
+                                            "background-color" = "#34455f",
+                                            "color" = "#eae4db",
+                                            "font-style" = "italic",
+                                            "margin" = "2px 15px",
+                                            "border-shadow" = "inset 5px 4px 3px -2px rgba(254, 254, 254, 0.4)",
+                                            "border-radius" = "border-radius: 22px",
+                                            "font-size" = "11px",
+                                            "border-color" = "rgba(0,0,0,0.5)")
+              ),
+              popup = gsa_boundaries_metadata$popup_html,
+              popupOptions = popupOptions(closeButton = FALSE, 
+                                          closeOnClick = TRUE, 
+                                          autoClose = FALSE,
+                                          style = list(
+                                            "background-color" = "#34455f",
+                                            "color" = "#eae4db")),
+              group = 'GSAs') %>% 
+  addLegend(
+    position = 'topright',
+    title = 'Basin Priority',
+    pal = pal,
+    opacity = 1.0, 
+    values = ~priority) %>% 
+  addLayersControl(
+    position = 'topright',
+    baseGroups = c("Satellite", "Terrain", "Toner"),
+    overlayGroups = c("Basins", "GSAs"),
+    options = layersControlOptions(collapsed = FALSE) # TRUE
+  ) %>% 
+  addEasyButton(easyButton(
+    icon="fa-globe", title="Center Map",
+    onClick=JS("function(btn, map){ 
+    map.setView([37.5, -119.4179],7);}"))) %>%
+  addMeasure(position = 'bottomright',
+             primaryLengthUnit = 'feet',
+             secondaryLengthUnit = 'miles',
+             primaryAreaUnit = 'acres',
+             secondaryAreaUnit = 'sqmiles',
+             thousandsSep = ',',
+             decPoint = '.',
+             activeColor = '#3D535D',
+             completedColor = '#7D4479') %>% 
+  addLogo(img = '', url = 'http://www.gvwire.com',
+          src = 'remote', width = '110%', height = '110%', offset.y = 0, 
+          position = 'topleft') %>% 
+  hideGroup("Basins")
+```
+
+```{r fig.width=8.5, fig.height=11.0}
+m
+```
